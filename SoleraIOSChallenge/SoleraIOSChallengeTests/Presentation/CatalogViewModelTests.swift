@@ -124,6 +124,47 @@ final class CatalogViewModelTests: XCTestCase {
         XCTAssertNil(model.paginationErrorMessage)
     }
 
+    func testRefreshPrependsNewItemsWithoutDuplicates() async throws {
+        let repository = CatalogRepositoryStub(items: [try makeItem("30"), try makeItem("29")])
+        let model = makeModel(repository: repository)
+        await model.load()
+        await repository.setNewerItems([try makeItem("31"), try makeItem("30")])
+        await model.refresh()
+        XCTAssertEqual(model.items.map(\.id), ["31", "30", "29"])
+        let calls = await repository.newerCalls
+        XCTAssertEqual(calls, ["30"])
+        XCTAssertFalse(model.isRefreshing)
+    }
+
+    func testRefreshFailurePreservesContent() async throws {
+        let repository = CatalogRepositoryStub(items: [try makeItem("30")])
+        let model = makeModel(repository: repository)
+        await model.load()
+        await repository.setFailure(true)
+        await model.refresh()
+        XCTAssertEqual(model.items.map(\.id), ["30"])
+        XCTAssertNotNil(model.errorMessage)
+        XCTAssertFalse(model.isRefreshing)
+    }
+
+    func testRefreshPreventsOtherRequestsWhileItIsRunning() async throws {
+        let repository = CatalogRepositoryStub(items: [try makeItem("30")])
+        let model = makeModel(repository: repository)
+        await model.load()
+        await repository.suspendNextRequest()
+        let task = Task { await model.refresh() }
+        await repository.waitUntilRequested()
+        XCTAssertTrue(model.isRefreshing)
+        await model.refresh()
+        await model.loadMore()
+        let calls = await repository.newerCalls
+        let olderCalls = await repository.olderCalls
+        XCTAssertEqual(calls, ["30"])
+        XCTAssertTrue(olderCalls.isEmpty)
+        await repository.resume()
+        await task.value
+    }
+
     private func makeItem(_ id: String) throws -> CatalogItem {
         CatalogItem(id: id, imageURL: try XCTUnwrap(URL(string: "https://example.com/image.png")),
                     description: "Photo \(id)", confidence: 0.96)
@@ -148,6 +189,8 @@ private actor CatalogRepositoryStub: CatalogRepository {
     private(set) var initialCalls = 0
     private(set) var olderCalls: [String] = []
     private var olderItems: [CatalogItem] = []
+    private var newerItems: [CatalogItem] = []
+    private(set) var newerCalls: [String] = []
 
     init(items: [CatalogItem] = [], fails: Bool = false, suspends: Bool = false) {
         self.items = items
@@ -192,5 +235,14 @@ private actor CatalogRepositoryStub: CatalogRepository {
         if fails { throw Failure.unavailable }
         return olderItems
     }
-    func getNewerItems(sinceID: String) async throws -> [CatalogItem] { [] }
+    func setNewerItems(_ items: [CatalogItem]) { newerItems = items }
+
+    func getNewerItems(sinceID: String) async throws -> [CatalogItem] {
+        newerCalls.append(sinceID)
+        if suspends {
+            await withCheckedContinuation { pending = $0; observer?.resume(); observer = nil }
+        }
+        if fails { throw Failure.unavailable }
+        return newerItems
+    }
 }

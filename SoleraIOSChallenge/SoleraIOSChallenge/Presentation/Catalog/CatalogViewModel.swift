@@ -13,6 +13,7 @@ final class CatalogViewModel {
     private(set) var items: [CatalogItemViewData] = []
     private(set) var isLoading = false
     private(set) var isLoadingMore = false
+    private(set) var isRefreshing = false
     private(set) var errorMessage: String?
     private(set) var paginationErrorMessage: String?
     private(set) var hasMore = true
@@ -57,7 +58,7 @@ final class CatalogViewModel {
     }
 
     func loadMore(retry: Bool = false) async {
-        guard !isLoading, !isLoadingMore, hasMore, let cursor = items.last?.id,
+        guard !isLoading, !isLoadingMore, !isRefreshing, hasMore, let cursor = items.last?.id,
               retry || cursor != requestedCursor else { return }
         requestedCursor = cursor
         isLoadingMore = true
@@ -74,6 +75,27 @@ final class CatalogViewModel {
             requestedCursor = nil
         } catch {
             paginationErrorMessage = "Couldn’t load more photos. Please try again."
+        }
+    }
+
+    func refresh() async {
+        guard !isLoading, !isLoadingMore, !isRefreshing else { return }
+        guard let newestID = items.first?.id else {
+            hasLoaded = false
+            await load()
+            return
+        }
+        isRefreshing = true
+        errorMessage = nil
+        defer { isRefreshing = false }
+        do {
+            let page = try await refreshItems.execute(sinceID: newestID).map(CatalogItemViewData.init)
+            try Task.checkCancellation()
+            items = unique(page + items)
+        } catch is CancellationError {
+            return
+        } catch {
+            errorMessage = "Couldn’t refresh the catalog. Your loaded photos are still available."
         }
     }
 

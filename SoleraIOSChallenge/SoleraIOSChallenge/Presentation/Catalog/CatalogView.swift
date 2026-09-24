@@ -24,6 +24,11 @@ struct CatalogView: View {
                     .padding()
                 } else {
                     List {
+                        if let error = model.errorMessage {
+                            Text(error)
+                                .font(.callout)
+                                .foregroundStyle(.secondary)
+                        }
                         ForEach(model.items) { item in
                             NavigationLink(value: item) {
                                 CatalogRowView(item: item)
@@ -49,6 +54,7 @@ struct CatalogView: View {
                         }
                     }
                     .listStyle(.insetGrouped)
+                    .refreshable { await model.refresh() }
                 }
             }
             .navigationTitle("Catalog")

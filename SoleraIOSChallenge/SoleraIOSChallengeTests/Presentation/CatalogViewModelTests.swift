@@ -72,6 +72,58 @@ final class CatalogViewModelTests: XCTestCase {
         XCTAssertFalse(model.isLoading)
     }
 
+    func testPaginationAppendsUniqueItemsAndStopsAtBoundaryOnlyPage() async throws {
+        let repository = CatalogRepositoryStub(items: [try makeItem("30"), try makeItem("30"), try makeItem("29")])
+        let model = makeModel(repository: repository)
+        await model.load()
+        await repository.setOlderItems([try makeItem("29"), try makeItem("28"), try makeItem("28")])
+        await model.loadMoreIfNeeded(itemID: "29")
+        XCTAssertEqual(model.items.map(\.id), ["30", "29", "28"])
+        await repository.setOlderItems([try makeItem("28")])
+        await model.loadMoreIfNeeded(itemID: "28")
+        await model.loadMoreIfNeeded(itemID: "28")
+        XCTAssertFalse(model.hasMore)
+        let calls = await repository.olderCalls
+        XCTAssertEqual(calls, ["29", "28"])
+    }
+
+    func testPaginationDoesNotReplaceContentOrMakeConcurrentRequests() async throws {
+        let repository = CatalogRepositoryStub(items: [try makeItem("30")])
+        let model = makeModel(repository: repository)
+        await model.load()
+        await repository.suspendNextRequest()
+        let task = Task { await model.loadMoreIfNeeded(itemID: "30") }
+        await repository.waitUntilRequested()
+        XCTAssertTrue(model.isLoadingMore)
+        XCTAssertFalse(model.isLoading)
+        XCTAssertEqual(model.items.map(\.id), ["30"])
+        await model.loadMoreIfNeeded(itemID: "30")
+        let calls = await repository.olderCalls
+        XCTAssertEqual(calls, ["30"])
+        await repository.resume()
+        await task.value
+    }
+
+    func testPaginationFailureNeedsExplicitRetryAndPreservesContent() async throws {
+        let repository = CatalogRepositoryStub(items: [try makeItem("30")])
+        let model = makeModel(repository: repository)
+        await model.load()
+        await repository.setFailure(true)
+        await model.loadMore()
+        await model.loadMore()
+        XCTAssertNotNil(model.paginationErrorMessage)
+        XCTAssertEqual(model.items.map(\.id), ["30"])
+        var calls = await repository.olderCalls
+        XCTAssertEqual(calls, ["30"])
+        await repository.setFailure(false)
+        await repository.setOlderItems([try makeItem("29")])
+        await model.loadMore(retry: true)
+        calls = await repository.olderCalls
+        XCTAssertEqual(calls, ["30", "30"])
+        XCTAssertEqual(model.items.map(\.id), ["30", "29"])
+        XCTAssertNil(model.paginationErrorMessage)
+    }
+
     private func makeItem(_ id: String) throws -> CatalogItem {
         CatalogItem(id: id, imageURL: try XCTUnwrap(URL(string: "https://example.com/image.png")),
                     description: "Photo \(id)", confidence: 0.96)
@@ -94,6 +146,8 @@ private actor CatalogRepositoryStub: CatalogRepository {
     private var pending: CheckedContinuation<Void, Never>?
     private var observer: CheckedContinuation<Void, Never>?
     private(set) var initialCalls = 0
+    private(set) var olderCalls: [String] = []
+    private var olderItems: [CatalogItem] = []
 
     init(items: [CatalogItem] = [], fails: Bool = false, suspends: Bool = false) {
         self.items = items
@@ -126,6 +180,17 @@ private actor CatalogRepositoryStub: CatalogRepository {
         pending = nil
     }
 
-    func getOlderItems(maxID: String) async throws -> [CatalogItem] { [] }
+    func setOlderItems(_ items: [CatalogItem]) { olderItems = items }
+    func setFailure(_ value: Bool) { fails = value }
+    func suspendNextRequest() { suspends = true }
+
+    func getOlderItems(maxID: String) async throws -> [CatalogItem] {
+        olderCalls.append(maxID)
+        if suspends {
+            await withCheckedContinuation { pending = $0; observer?.resume(); observer = nil }
+        }
+        if fails { throw Failure.unavailable }
+        return olderItems
+    }
     func getNewerItems(sinceID: String) async throws -> [CatalogItem] { [] }
 }

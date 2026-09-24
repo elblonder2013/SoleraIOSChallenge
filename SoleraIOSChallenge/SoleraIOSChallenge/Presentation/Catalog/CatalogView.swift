@@ -23,9 +23,29 @@ struct CatalogView: View {
                     }
                     .padding()
                 } else {
-                    List(model.items) { item in
-                        NavigationLink(value: item) {
-                            CatalogRowView(item: item)
+                    List {
+                        ForEach(model.items) { item in
+                            NavigationLink(value: item) {
+                                CatalogRowView(item: item)
+                            }
+                            .task { await model.loadMoreIfNeeded(itemID: item.id) }
+                        }
+                        if model.isLoadingMore {
+                            ProgressView("Loading more photos…")
+                                .frame(maxWidth: .infinity)
+                        }
+                        if let error = model.paginationErrorMessage {
+                            VStack(spacing: 8) {
+                                Text(error)
+                                Button("Retry loading more") {
+                                    Task { await model.loadMore(retry: true) }
+                                }
+                            }
+                        } else if !model.hasMore && !model.items.isEmpty {
+                            Text("All photos loaded")
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                                .frame(maxWidth: .infinity)
                         }
                     }
                     .listStyle(.insetGrouped)

@@ -40,11 +40,21 @@ final class CatalogViewModel {
         errorMessage = nil
         defer { isLoading = false }
         do {
+            let cached = try await getItems.cachedItems()
+            try Task.checkCancellation()
+            items = unique(cached.map(CatalogItemViewData.init))
+        } catch is CancellationError {
+            return
+        } catch {
+            errorMessage = "Saved photos couldn’t be read. Trying the catalog service."
+        }
+        do {
             let result = try await getItems.execute()
             try Task.checkCancellation()
             items = unique(result.map(CatalogItemViewData.init))
             hasMore = !items.isEmpty
             hasLoaded = true
+            errorMessage = nil
         } catch is CancellationError {
             return
         } catch {

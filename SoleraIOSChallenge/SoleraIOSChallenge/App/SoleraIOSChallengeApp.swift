@@ -16,8 +16,13 @@ struct SoleraIOSChallengeApp: App {
 
     init() {
         isUnitTest = ProcessInfo.processInfo.environment["XCTestBundlePath"] != nil
+        if isUnitTest {
+            _model = State(initialValue: nil)
+            setupError = nil
+            return
+        }
         do {
-            let container = AppDIContainer(configuration: try AppConfiguration.load())
+            let container = try AppDIContainer(configuration: AppConfiguration.load())
             _model = State(initialValue: container.makeCatalogViewModel())
             setupError = nil
         } catch {

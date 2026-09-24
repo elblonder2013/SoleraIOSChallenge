@@ -203,6 +203,8 @@ private actor CatalogRepositoryStub: CatalogRepository {
         fails = false
     }
 
+    func getCachedItems() async throws -> [CatalogItem] { [] }
+
     func getItems() async throws -> [CatalogItem] {
         initialCalls += 1
         if suspends {

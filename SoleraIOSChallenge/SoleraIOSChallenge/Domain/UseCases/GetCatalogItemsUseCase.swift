@@ -15,4 +15,8 @@ struct GetCatalogItemsUseCase: Sendable {
     func execute() async throws -> [CatalogItem] {
         try await repository.getItems()
     }
+
+    func cachedItems() async throws -> [CatalogItem] {
+        try await repository.getCachedItems()
+    }
 }

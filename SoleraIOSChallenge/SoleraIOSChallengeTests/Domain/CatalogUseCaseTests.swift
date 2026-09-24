@@ -85,6 +85,8 @@ private actor RepositorySpy: CatalogRepository {
         self.result = result
     }
 
+    func getCachedItems() async throws -> [CatalogItem] { [] }
+
     func getItems() async throws -> [CatalogItem] {
         calls.append(.initial)
         return try result.get()

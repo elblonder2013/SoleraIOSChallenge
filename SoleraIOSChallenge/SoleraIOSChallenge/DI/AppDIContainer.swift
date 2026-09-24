@@ -10,6 +10,11 @@ struct AppDIContainer {
     let loadMoreItems: LoadMoreCatalogItemsUseCase
     let refreshItems: RefreshCatalogItemsUseCase
 
+    @MainActor
+    func makeCatalogViewModel() -> CatalogViewModel {
+        CatalogViewModel(getItems: getItems, loadMoreItems: loadMoreItems, refreshItems: refreshItems)
+    }
+
     init(configuration: AppConfiguration) {
         let client = DefaultAPIClient(
             baseURL: configuration.baseURL,

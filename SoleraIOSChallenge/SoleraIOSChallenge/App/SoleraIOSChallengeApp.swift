@@ -8,10 +8,37 @@
 import SwiftUI
 
 @main
+@MainActor
 struct SoleraIOSChallengeApp: App {
+    @State private var model: CatalogViewModel?
+    private let setupError: String?
+    private let isUnitTest: Bool
+
+    init() {
+        isUnitTest = ProcessInfo.processInfo.environment["XCTestBundlePath"] != nil
+        do {
+            let container = AppDIContainer(configuration: try AppConfiguration.load())
+            _model = State(initialValue: container.makeCatalogViewModel())
+            setupError = nil
+        } catch {
+            _model = State(initialValue: nil)
+            setupError = error.localizedDescription
+        }
+    }
+
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            if isUnitTest {
+                Color.clear
+            } else if let model {
+                CatalogView(model: model)
+            } else {
+                ContentUnavailableView(
+                    "Catalog unavailable",
+                    systemImage: "exclamationmark.triangle",
+                    description: Text(setupError ?? "Please check the app configuration.")
+                )
+            }
         }
     }
 }

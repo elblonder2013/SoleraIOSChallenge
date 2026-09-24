@@ -19,4 +19,8 @@ struct CatalogItemDTO: Decodable, Sendable {
         case text
         case confidence
     }
+
+    func toDomain() -> CatalogItem {
+        CatalogItem(id: id, imageURL: imageURL, description: text, confidence: confidence)
+    }
 }

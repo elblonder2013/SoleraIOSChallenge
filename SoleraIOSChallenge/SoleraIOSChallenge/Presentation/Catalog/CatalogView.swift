@@ -24,12 +24,17 @@ struct CatalogView: View {
                     .padding()
                 } else {
                     List(model.items) { item in
-                        CatalogRowView(item: item)
+                        NavigationLink(value: item) {
+                            CatalogRowView(item: item)
+                        }
                     }
                     .listStyle(.insetGrouped)
                 }
             }
             .navigationTitle("Catalog")
+            .navigationDestination(for: CatalogItemViewData.self) { item in
+                CatalogDetailView(item: item)
+            }
             .task { await model.load() }
         }
         .tint(.teal)

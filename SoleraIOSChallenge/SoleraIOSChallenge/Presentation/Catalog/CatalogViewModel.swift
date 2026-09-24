@@ -88,6 +88,14 @@ final class CatalogViewModel {
         }
     }
 
+    func retry() async {
+        if hasLoaded {
+            await refresh()
+        } else {
+            await load()
+        }
+    }
+
     func refresh() async {
         guard !isLoading, !isLoadingMore, !isRefreshing else { return }
         guard let newestID = items.first?.id else {

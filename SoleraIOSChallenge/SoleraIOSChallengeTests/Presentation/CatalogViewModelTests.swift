@@ -165,6 +165,45 @@ final class CatalogViewModelTests: XCTestCase {
         await task.value
     }
 
+    func testCachedItemsAreVisibleBeforeRemoteRequestFinishes() async throws {
+        let cached = try makeItem("29")
+        let repository = CatalogRepositoryStub(items: [try makeItem("30"), cached], suspends: true)
+        await repository.setCachedItems([cached])
+        let model = makeModel(repository: repository)
+        let task = Task { await model.load() }
+        await repository.waitUntilRequested()
+        XCTAssertEqual(model.items.map(\.id), ["29"])
+        XCTAssertTrue(model.isLoading)
+        await repository.resume()
+        await task.value
+        XCTAssertEqual(model.items.map(\.id), ["30", "29"])
+    }
+
+    func testBackgroundFailureKeepsCachedContentVisibleAndRetryable() async throws {
+        let repository = CatalogRepositoryStub(fails: true)
+        await repository.setCachedItems([try makeItem("29")])
+        let model = makeModel(repository: repository)
+        await model.load()
+        XCTAssertEqual(model.items.map(\.id), ["29"])
+        XCTAssertNotNil(model.errorMessage)
+        await repository.setItems([try makeItem("30"), try makeItem("29")])
+        await model.retry()
+        XCTAssertEqual(model.items.map(\.id), ["30", "29"])
+        XCTAssertNil(model.errorMessage)
+    }
+
+    func testEmptyCatalogCanBeRefreshed() async throws {
+        let repository = CatalogRepositoryStub()
+        let model = makeModel(repository: repository)
+        await model.load()
+        XCTAssertTrue(model.items.isEmpty)
+        XCTAssertFalse(model.hasMore)
+        await repository.setItems([try makeItem("30")])
+        await model.refresh()
+        XCTAssertEqual(model.items.map(\.id), ["30"])
+        XCTAssertTrue(model.hasMore)
+    }
+
     private func makeItem(_ id: String) throws -> CatalogItem {
         CatalogItem(id: id, imageURL: try XCTUnwrap(URL(string: "https://example.com/image.png")),
                     description: "Photo \(id)", confidence: 0.96)
@@ -188,6 +227,7 @@ private actor CatalogRepositoryStub: CatalogRepository {
     private var observer: CheckedContinuation<Void, Never>?
     private(set) var initialCalls = 0
     private(set) var olderCalls: [String] = []
+    private var cachedItems: [CatalogItem] = []
     private var olderItems: [CatalogItem] = []
     private var newerItems: [CatalogItem] = []
     private(set) var newerCalls: [String] = []
@@ -203,7 +243,8 @@ private actor CatalogRepositoryStub: CatalogRepository {
         fails = false
     }
 
-    func getCachedItems() async throws -> [CatalogItem] { [] }
+    func setCachedItems(_ values: [CatalogItem]) { cachedItems = values }
+    func getCachedItems() async throws -> [CatalogItem] { cachedItems }
 
     func getItems() async throws -> [CatalogItem] {
         initialCalls += 1
